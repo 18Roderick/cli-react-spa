@@ -1,124 +1,88 @@
-import { Command } from 'commander';
-import fs from 'fs-extra';
+
+
+// src/index.ts
 import path from 'path';
+import fs from 'fs-extra';
 import ora from 'ora';
-import { execSync } from 'child_process';
-import inquirer from 'inquirer';
+import { program } from 'commander';
+import {
+    promptProjectName,
+    promptTemplate,
+    promptPackageManager,
+    promptInstallDependencies,
+    promptGitInit
+} from './prompts';
+import { copyTemplate } from './utils/file';
+import { installDependencies } from './utils/dependencies';
+import { initGitRepo } from './utils/git';
+import type { CliOptions } from './types';
 
-const program = new Command();
+async function main() {
+    program
+        .option('-n, --name <name>', 'nombre del proyecto')
+        .parse(process.argv);
 
-program
-  .name('create-project')
-  .description('CLI para crear un template de proyecto base')
-  .version('1.0.0')
-  .argument('[project-name]', 'Nombre del proyecto')
-  .action(async (projectName?: string) => {
-    if (!projectName) {
-      const response = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'projectName',
-          message: 'Introduce el nombre del proyecto:',
-          validate: input => input ? true : 'El nombre del proyecto no puede estar vacío.'
-        }
-      ]);
-      projectName = response.projectName;
-    }
+    const options = program.opts<CliOptions>();
     
-    const projectPath = path.join(process.cwd(), projectName!);
-    
-    if (fs.existsSync(projectPath)) {
-      console.error(`El directorio ${projectName} ya existe.`);
-      process.exit(1);
-    }
-
-    const spinner = ora('Creando proyecto...').start();
-    fs.mkdirSync(projectPath);
-
     try {
-      const folders = ['src', 'tests'];
-      folders.forEach(folder => fs.mkdirSync(path.join(projectPath, folder)));
-      
-      fs.writeFileSync(path.join(projectPath, 'package.json'), JSON.stringify({
-        name: projectName,
-        version: '1.0.0',
-        scripts: {
-          start: 'node dist/index.js',
-          build: 'tsc'
-        }
-      }, null, 2));
-      
-      fs.writeFileSync(path.join(projectPath, 'tsconfig.json'), JSON.stringify({
-        compilerOptions: {
-          target: 'ES6',
-          module: 'CommonJS',
-          outDir: 'dist',
-          rootDir: 'src'
-        }
-      }, null, 2));
-      
-      fs.writeFileSync(path.join(projectPath, 'src', 'index.ts'), `console.log('Hello, world!');`);
-      
-      spinner.succeed('Proyecto creado con éxito.');
+        // Obtener nombre del proyecto
+        const projectName = options.name || await promptProjectName();
+        const projectPath = path.join(process.cwd(), projectName);
 
-      const { packageManager } = await inquirer.prompt<{ packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' }>([
-        {
-          type: 'list',
-          name: 'packageManager',
-          message: 'Selecciona el manejador de paquetes:',
-          choices: ['npm', 'yarn', 'pnpm', 'bun']
+        // Verificar si el directorio ya existe
+        if (await fs.pathExists(projectPath)) {
+            throw new Error(`El directorio ${projectName} ya existe`);
         }
-      ]);
 
-      const { installDependencies } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'installDependencies',
-          message: '¿Deseas instalar las dependencias?',
-          default: true
-        }
-      ]);
+        // Seleccionar template
+        const template = await promptTemplate();
 
-      if (installDependencies) {
-        const installSpinner = ora(`Instalando dependencias con ${packageManager}...`).start();
-        try {
-          const installCommand = {
-            npm: 'npm install',
-            yarn: 'yarn install',
-            pnpm: 'pnpm install',
-            bun: 'bun install'
-          }[packageManager];
-          execSync(installCommand, { cwd: projectPath, stdio: 'inherit' });
-          installSpinner.succeed('Dependencias instaladas con éxito.');
-        } catch (error) {
-          installSpinner.fail('Error al instalar dependencias.');
-        }
-      }
+        // Crear directorio y copiar template
+        const spinner = ora('Creando proyecto...').start();
+        await fs.ensureDir(projectPath);
+        await copyTemplate(template, projectPath);
+        spinner.succeed('Proyecto creado exitosamente');
 
-      const { initGit } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'initGit',
-          message: '¿Deseas inicializar un repositorio Git?',
-          default: true
+        // Manejar dependencias
+        const packageManager = await promptPackageManager();
+        const shouldInstall = await promptInstallDependencies();
+        
+        if (shouldInstall) {
+            const installSpinner = ora('Instalando dependencias...').start();
+            try {
+                installDependencies(projectPath, packageManager);
+                installSpinner.succeed('Dependencias instaladas exitosamente');
+            } catch (error) {
+                installSpinner.fail('Error al instalar dependencias');
+                throw error;
+            }
         }
-      ]);
 
-      if (initGit) {
-        const gitSpinner = ora('Inicializando repositorio Git...').start();
-        try {
-          execSync('git init', { cwd: projectPath, stdio: 'inherit' });
-          fs.writeFileSync(path.join(projectPath, '.gitignore'), 'node_modules\ndist\n');
-          gitSpinner.succeed('Repositorio Git inicializado con éxito.');
-        } catch (error) {
-          gitSpinner.fail('Error al inicializar el repositorio Git.');
+        // Inicializar Git
+        const shouldInitGit = await promptGitInit();
+        if (shouldInitGit) {
+            const gitSpinner = ora('Inicializando repositorio Git...').start();
+            try {
+                await initGitRepo(projectPath);
+                gitSpinner.succeed('Repositorio Git inicializado exitosamente');
+            } catch (error) {
+                gitSpinner.fail('Error al inicializar repositorio Git');
+                throw error;
+            }
         }
-      }
+
+        console.log('\n✨ Proyecto generado exitosamente!');
+        console.log(`\nPara comenzar:`);
+        console.log(`  cd ${projectName}`);
+        if (!shouldInstall) {
+            console.log(`  ${packageManager} install`);
+        }
+        console.log(`  ${packageManager} start\n`);
+
     } catch (error) {
-      spinner.fail('Error al crear el proyecto.');
-      console.error(error);
-      process.exit(1);
+        console.error('Error:', (error as Error).message);
+        process.exit(1);
     }
-  });
+}
 
-program.parse();
+main();
