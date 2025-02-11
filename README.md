@@ -19,5 +19,7 @@ This project was created using `bun init` in bun v1.2.1. [Bun](https://bun.sh) i
 ```bash
 ```bash
 bun build {input_file}.ts --out {output_file}.js --target node --outdir . --hash
+
+bun build ./src/index.ts --outdir ./dist --target node
 ```
 ```
