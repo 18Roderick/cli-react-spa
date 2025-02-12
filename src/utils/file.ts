@@ -1,9 +1,10 @@
+// src/utils/file.ts
 import fs from 'fs-extra';
 import path from 'path';
 
 export const getTemplates = async (): Promise<string[]> => {
-    // Cambio: Usando path.resolve para obtener la ruta absoluta desde la raíz del proyecto
-    const templatesDir = path.resolve(process.cwd(), 'templates');
+    // Cambio: Usando path.resolve para obtener la ruta a src/templates
+    const templatesDir = path.resolve(__dirname, '../templates');
     
     try {
         // Verificar si el directorio existe
@@ -28,11 +29,22 @@ export const copyTemplate = async (
     targetDir: string
 ): Promise<void> => {
     // Cambio: Usando la misma lógica de ruta que getTemplates
-    const templateDir = path.resolve(process.cwd(), 'templates', templateName);
+    const templateDir = path.resolve(__dirname, '../templates', templateName);
     
     if (!await fs.pathExists(templateDir)) {
         throw new Error(`El template '${templateName}' no existe en ${templateDir}`);
     }
     
     await fs.copy(templateDir, targetDir);
+};
+
+
+export const updatePackageJson = async (projectPath: string, projectName: string): Promise<void> => {
+    const packageJsonPath = path.join(projectPath, 'package.json');
+    
+    if (await fs.pathExists(packageJsonPath)) {
+        const packageJson = await fs.readJson(packageJsonPath);
+        packageJson.name = projectName.toLowerCase().replace(/\s+/g, '-');
+        await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
+    }
 };
