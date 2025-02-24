@@ -1,198 +1,131 @@
-import nodemailer from 'nodemailer';
-import { Telegraf } from 'telegraf';
+import { chromium, type Browser, type Page } from 'playwright';
+import fs from 'fs/promises';
 
-import  "dotenv/config";
-import { chromium, type Browser } from '@playwright/test';
-interface Config {
+// Definición estricta de la interfaz para eventos de carreras
+interface RaceEvent {
+  title: string;
+  date: string;
+  link: string;
+  imageUrl: string;
+  registrationLinks: {
+    type: string;
     url: string;
-    checkInterval: number; // en milisegundos
-    emailConfig: {
-        to: string;
-        from: string;
-        subject: string;
-    };
-    telegramConfig: {
-        enabled: boolean;
-        chatId: string;
-    };
+  }[];
 }
 
-class TicketScraper {
-    private config: Config;
-    private browser: Browser | null = null; // Cambiado a 'any' para Playwright
-    private telegram: Telegraf | null = null;
-    private emailTransporter: nodemailer.Transporter;
-
-    constructor(config: Config) {
-        this.config = config;
-
-        // Inicializar transporter de email
-        this.emailTransporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASSWORD
-            }
-        });
-
-        // Inicializar bot de Telegram si está habilitado
-        if (this.config.telegramConfig.enabled) {
-            this.telegram = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || '');
-        }
-    }
-
-    private async initBrowser(): Promise<void> {
-        try {
-            this.browser = await chromium.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-            });
-        } catch (error) {
-            console.error('Error al inicializar el navegador:', error);
-            throw error;
-        }
-    }
-
-    private async checkAvailability(): Promise<boolean> {
-        if (!this.browser) {
-            await this.initBrowser();
-        }
-
-        if (!this.browser) {
-            throw new Error('Browser is not initialized');
-        }
-        const page = await this.browser.newPage();
-
-        try {
-            // Configurar interceptación de recursos para optimizar la velocidad
-            await page.route('**/*', (route) => {
-                const resourceType = route.request().resourceType();
-                if (['image', 'stylesheet', 'font'].includes(resourceType)) {
-                    route.abort();
-                } else {
-                    route.continue();
-                }
-            });
-
-            // Navegar a la página con timeout y retry
-            await this.retryOperation(async () => {
-                await page.goto(this.config.url, { 
-                    waitUntil: 'networkidle',
-                    timeout: 30000 
-                });
-            }, 3);
-
-            // Esperar por el selector específico
-            const selector = '#tabla_tickets_sin_codigo > tbody > tr:nth-child(1) > td > div:nth-child(1) > div > table > tbody';
-            await page.waitForSelector(selector);
-
-            // Obtener el texto de la tercera columna
-            const text = await page.evaluate((sel) => {
-                const element = document.querySelector(sel);
-                const thirdColumn = element?.querySelector('tr td:nth-child(3)');
-                return thirdColumn?.textContent?.trim() || '';
-            }, selector);
-
-            return text.toLowerCase() !== 'agotado';
-
-        } catch (error) {
-            console.error('Error al verificar disponibilidad:', error);
-            throw error;
-        } finally {
-            await page.close();
-        }
-    }
-
-    private async sendEmail(message: string): Promise<void> {
-        const mailOptions = {
-            from: this.config.emailConfig.from,
-            to: this.config.emailConfig.to,
-            subject: this.config.emailConfig.subject,
-            text: message
-        };
-
-        try {
-            await this.emailTransporter.sendMail(mailOptions);
-            console.log('Email enviado exitosamente');
-        } catch (error) {
-            console.error('Error al enviar email:', error);
-        }
-    }
-
-    private async sendTelegramMessage(message: string): Promise<void> {
-        if (this.telegram && this.config.telegramConfig.enabled) {
-            try {
-                await this.telegram.telegram.sendMessage(
-                    this.config.telegramConfig.chatId,
-                    message
-                );
-                console.log('Mensaje de Telegram enviado exitosamente');
-            } catch (error) {
-                console.error('Error al enviar mensaje de Telegram:', error);
-            }
-        }
-    }
-
-    private async retryOperation(operation: () => Promise<void>, maxRetries: number): Promise<void> {
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                await operation();
-                return;
-            } catch (error) {
-                if (i === maxRetries - 1) throw error;
-                await new Promise(resolve => setTimeout(resolve, 5000));
-            }
-        }
-    }
-
-    public async start(): Promise<void> {
-        console.log('Iniciando monitoreo de tickets...');
-
-        try {
-            await this.initBrowser();
-
-            setInterval(async () => {
-                try {
-                    const isAvailable = await this.checkAvailability();
-                    
-                    if (isAvailable) {
-                        const message = '¡Hay tickets disponibles! Revisa la página ahora.';
-                        await this.sendEmail(message);
-                        await this.sendTelegramMessage(message);
-                    }
-                } catch (error) {
-                    console.error('Error durante el ciclo de verificación:', error);
-                }
-            }, this.config.checkInterval);
-
-        } catch (error) {
-            console.error('Error fatal en el scraper:', error);
-            if (this.browser) await this.browser.close();
-            process.exit(1);
-        }
-    }
-}
-
-// Configuración de ejemplo
-const config: Config = {
-    url: 'https://www.passline.com/eventos/ph-carnavales-las-tablas-2025',
-    checkInterval: 5 * 60 * 1000, // 5 minutos
-    emailConfig: {
-        to: 'tu@email.com',
-        from: 'notificador@tudominio.com',
-        subject: 'Notificación de Disponibilidad de Tickets'
-    },
-    telegramConfig: {
-        enabled: true,
-        chatId: 'TU_CHAT_ID'
-    }
+// Configuración
+const config = {
+  url: 'https://carreraspanama.com/',
+  selector: '#eventos2 > div > div > div > div > div.col-lg-4.col-md-6 > div',
+  outputFile: 'carreras_panama_eventos.json'
 };
 
-// Crear archivo .env con las siguientes variables:
-// EMAIL_USER=tu_email@gmail.com
-// EMAIL_PASSWORD=tu_password_de_aplicacion
-// TELEGRAM_BOT_TOKEN=tu_token_de_bot
+async function scrapeRaceEvents(url: string): Promise<RaceEvent[]> {
+  let browser: Browser | null = null;
 
-// Iniciar el scraper
-const scraper = new TicketScraper(config);
-scraper.start().catch(console.error);
+  try {
+    console.log('🚀 Iniciando el navegador...');
+    browser = await chromium.launch({ headless: true });
+    const page: Page = await browser.newPage();
+
+    console.log(`🌐 Navegando a: ${url}`);
+    await page.goto(url, { waitUntil: 'networkidle' });
+    
+    // Esperamos a que los eventos se carguen completamente
+    await page.waitForSelector(config.selector, { timeout: 10000 });
+
+    const events: RaceEvent[] = await page.evaluate((selector) => {
+      const eventElements = document.querySelectorAll(selector);
+      const eventList: any[] = [];
+
+      eventElements.forEach(event => {
+        // Extracción de datos según el HTML de ejemplo
+        const title = event.querySelector('h4')?.textContent?.trim() || 'Sin título';
+        
+        // Extraer fecha del formato "DD/MM/YYYY"
+        const dateElement = event.querySelector('.news-meta li');
+        const dateText = dateElement?.textContent?.trim() || '';
+        const dateMatch = dateText.match(/\d{2}\/\d{2}\/\d{4}/);
+        const date = dateMatch ? dateMatch[0] : 'Fecha no disponible';
+        
+        // Enlaces de registro
+        const registrationLinks: { type: string; url: string }[] = [];
+        const linkElements = event.querySelectorAll('.buy-ticket a.btn');
+        
+        linkElements.forEach(linkElement => {
+          const linkText = linkElement.textContent?.trim() || '';
+          const url = linkElement.getAttribute('href') || '#';
+          registrationLinks.push({
+            type: linkText,
+            url: url
+          });
+        });
+        
+        // Imagen del evento
+        const imageUrl = event.querySelector('.thumb img')?.getAttribute('src') || '';
+        
+        // Enlace principal del evento (si existe)
+        const link = event.querySelector('h4 a')?.getAttribute('href') || 
+                     event.querySelector('.thumb a')?.getAttribute('href') || '#';
+
+        eventList.push({ 
+          title, 
+          date, 
+          link,
+          imageUrl,
+          registrationLinks
+        });
+      });
+
+      return eventList;
+    }, config.selector);
+
+    console.log(`✅ Se encontraron ${events.length} eventos.`);
+    return events;
+  } catch (error) {
+    console.error('❌ Error al hacer scraping:', error);
+    return [];
+  } finally {
+    if (browser) {
+      await browser.close();
+      console.log('🧹 Navegador cerrado correctamente.');
+    }
+  }
+}
+
+// Función para guardar los eventos en un archivo JSON
+async function saveEventsToFile(events: RaceEvent[], filePath: string): Promise<void> {
+  try {
+    await fs.writeFile(filePath, JSON.stringify(events, null, 2), 'utf-8');
+    console.log(`💾 Datos guardados exitosamente en: ${filePath}`);
+  } catch (error) {
+    console.error('❌ Error al guardar los datos:', error);
+  }
+}
+
+// Función principal
+async function main(): Promise<void> {
+  console.log('🏃 Iniciando scraping de eventos de carreras...');
+  
+  const events = await scrapeRaceEvents(config.url);
+
+  if (events.length === 0) {
+    console.log('⚠️ No se encontraron eventos.');
+    return;
+  }
+  
+  // Mostrar los primeros 2 eventos como muestra
+  console.log('📋 Muestra de eventos encontrados:');
+  console.log(JSON.stringify(events.slice(0, 2), null, 2));
+  
+  // Guardar todos los eventos en un archivo
+  await saveEventsToFile(events, config.outputFile);
+  
+  console.log('✅ Proceso completado exitosamente.');
+}
+
+// Ejecutar el script
+main().catch(error => {
+  console.error('❌ Error en la ejecución principal:', error);
+  process.exit(1);
+});
