@@ -1,0 +1,39 @@
+[
+  {
+    "title": "21K - 10K - 5K - Summer Run - Circuito City",
+    "date": "23/03/2025",
+    "link": "#",
+    "imageUrl": "../../../../assets/public/evento/inicio_evento_y_registrado77/X2RSPHaDycsgFqbN2nzylB9tiNDkeQJFe0vYPqAO.jpg",
+    "registrationLinks": [
+      {
+        "type": "TENGO\n                                            UN CÓDIGO",
+        "url": "https://carreraspanama.com/codigo/evento/77/registrar"
+      },
+      {
+        "type": "PAGAR CON YAPPY",
+        "url": "https://carreraspanama.com/yappy/evento/77/registrar"
+      }
+    ],
+    "availability": [
+      {
+        "type": "TENGO\n                                            UN CÓDIGO",
+        "price": "Evento 21K - 10K - 5K - Summer Run - Circuito City",
+        "registrationStatus": "Disponibles",
+        "isAvailable": true,
+        "additionalInfo": [
+          "Evento 21K - 10K - 5K - Summer Run - Circuito City",
+          "Registra el código que aparece en\n    tu ficha e ingresa tus datos correctamente. Si no tienes un código aún, adquierelo en la tiendas participantes."
+        ]
+      },
+      {
+        "type": "PAGAR CON YAPPY",
+        "price": "Evento 21K - 10K - 5K - Summer Run - Circuito City",
+        "registrationStatus": "Agotados",
+        "isAvailable": false,
+        "additionalInfo": [
+          "Evento 21K - 10K - 5K - Summer Run - Circuito City"
+        ]
+      }
+    ]
+  }
+]
